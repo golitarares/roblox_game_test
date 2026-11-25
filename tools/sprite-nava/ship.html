@@ -1,0 +1,74 @@
+<!doctype html><html><body style="margin:0;background:#9fd">
+<script src="node_modules/three/build/three.min.js"></script>
+<script>
+const FR=256, N=16, COLS=4;
+const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true,preserveDrawingBuffer:true});
+renderer.setSize(FR,FR); renderer.setClearColor(0x000000,0);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+const scene=new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff,0x557766,1.1));
+const sun=new THREE.DirectionalLight(0xfff2dd,2.2); sun.position.set(-6,12,4); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048); Object.assign(sun.shadow.camera,{left:-12,right:12,top:12,bottom:-12,near:0.5,far:40}); sun.shadow.radius=4;
+scene.add(sun);
+function canvasTex(w,h,draw){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'),w,h);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
+const plankTex=(base,line)=>canvasTex(256,256,(g,w,h)=>{g.fillStyle=base;g.fillRect(0,0,w,h);g.strokeStyle=line;g.lineWidth=3;for(let y=0;y<h;y+=21){g.beginPath();g.moveTo(0,y);g.lineTo(w,y);g.stroke();}for(let i=0;i<40;i++){g.fillStyle='rgba(0,0,0,0.12)';g.fillRect(Math.random()*w,Math.floor(Math.random()*12)*21+2,30+Math.random()*40,17);}});
+const hullMat=new THREE.MeshStandardMaterial({map:plankTex('#5a3518','#2e1a0a'),roughness:0.9});
+const deckMat=new THREE.MeshStandardMaterial({map:plankTex('#9a6a3a','#5e3d1d'),roughness:0.9});
+const darkWood=new THREE.MeshStandardMaterial({color:0x3a2210,roughness:0.9});
+const stripe=canvasTex(128,128,(g,w,h)=>{for(let i=0;i<8;i++){g.fillStyle=i%2?'#f4efe6':'#c8302a';g.fillRect(i*16,0,16,h);}});
+const roofMat=new THREE.MeshStandardMaterial({map:stripe,roughness:0.7});
+const sailMat=new THREE.MeshStandardMaterial({color:0x26262a,roughness:1,side:THREE.DoubleSide});
+const ironMat=new THREE.MeshStandardMaterial({color:0x1c1c1c,metalness:0.6,roughness:0.4});
+function enableShadow(o){o.traverse(m=>{if(m.isMesh){m.castShadow=true;m.receiveShadow=true;}});}
+
+// hull outline (top view, bow toward -Z)
+function outline(s){const p=new THREE.Shape();const L=5*s,W=1.3*s;
+ // shape +y maps to world -Z after rotateX(-PI/2): bow at +y (screen up), stern at -y
+ p.moveTo(-W,-L*0.85); p.lineTo(W,-L*0.85);
+ p.bezierCurveTo(W*1.1,-L*0.2,W*1.05,L*0.4,0,L);
+ p.bezierCurveTo(-W*1.05,L*0.4,-W*1.1,-L*0.2,-W,-L*0.85); return p;}
+const ship=new THREE.Group();
+function hullLayer(scale,y0,h,mat){const g=new THREE.ExtrudeGeometry(outline(scale),{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,mat);m.position.y=y0;ship.add(m);
+ // map planks along sides: use world UVs approx
+ return m;}
+hullLayer(0.72,-0.6,0.4,hullMat);
+hullLayer(0.88,-0.2,0.45,hullMat);
+hullLayer(1.0,0.25,0.55,hullMat);
+const deck=hullLayer(0.93,0.8,0.02,deckMat);
+// rail top band
+const railG=new THREE.ExtrudeGeometry((()=>{const s=outline(1.0);s.holes.push(new THREE.Path(outline(0.92).getPoints(60)));return s;})(),{depth:0.25,bevelEnabled:false});
+railG.rotateX(-Math.PI/2); const rail=new THREE.Mesh(railG,darkWood); rail.position.y=0.8; ship.add(rail);
+// stern cabin
+const cabin=new THREE.Mesh(new THREE.BoxGeometry(2.2,1.0,1.9),deckMat); cabin.position.set(0,1.3,3.15); ship.add(cabin);
+const roof=new THREE.Mesh(new THREE.BoxGeometry(2.45,0.14,2.15),roofMat); roof.position.set(0,1.87,3.15); ship.add(roof);
+// masts
+function mast(z,h){const m=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.12,h,10),darkWood);m.position.set(0,0.8+h/2,z);ship.add(m);return m;}
+mast(-1.2,6.2); mast(1.3,5.4);
+// lateen sails: triangle, leading edge long yard
+function sail(z,h,len){const s=new THREE.Shape();s.moveTo(0,0);s.lineTo(0,h);s.lineTo(-len,h*0.25);s.lineTo(0,0);
+ const g=new THREE.ShapeGeometry(s); const m=new THREE.Mesh(g,sailMat); m.rotation.y=Math.PI/2+0.25; m.position.set(0.05,1.4,z); ship.add(m);
+}
+sail(-1.15,5.6,4.0); sail(1.35,4.6,3.3);
+// bowsprit
+const bs=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.08,2.4,8),darkWood); bs.rotation.x=Math.PI/2-0.35; bs.position.set(0,1.2,-5.4); ship.add(bs);
+// flag
+const flag=new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.55),new THREE.MeshStandardMaterial({color:0x111111,side:THREE.DoubleSide})); flag.position.set(0,7.2,-1.2+0.45); flag.rotation.y=Math.PI/2; ship.add(flag);
+// cannons
+for(const side of [-1,1]) for(const z of [-1.8,-0.3,1.2]){const c=new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.14,0.8,10),ironMat);c.rotation.z=Math.PI/2;c.position.set(side*1.25,0.62,z);ship.add(c);
+ const port=new THREE.Mesh(new THREE.BoxGeometry(0.06,0.32,0.42),new THREE.MeshStandardMaterial({color:0xe8e2d4}));port.position.set(side*(1.0*1.3*0.98),0.55,z);}
+enableShadow(ship); scene.add(ship);
+// shadow-receiving water plane
+const water=new THREE.Mesh(new THREE.PlaneGeometry(60,60),new THREE.ShadowMaterial({opacity:0.35})); water.rotation.x=-Math.PI/2; water.position.y=0; water.receiveShadow=true; scene.add(water);
+// camera: orthographic, elevation 55deg, looking from screen-bottom (+Z) toward -Z
+const V=6.6; const cam=new THREE.OrthographicCamera(-V,V,V,-V,0.1,100);
+const el=55*Math.PI/180, dist=40; cam.position.set(0,Math.sin(el)*dist,Math.cos(el)*dist); cam.lookAt(0,1.6,0);
+const sheet=document.createElement('canvas'); sheet.width=FR*COLS; sheet.height=FR*Math.ceil(N/COLS); const sg=sheet.getContext('2d');
+for(let i=0;i<N;i++){
+  // frame i: bow points i*22.5deg clockwise from "up on screen" (north / -Z)
+  ship.rotation.y=-i*2*Math.PI/N;
+  renderer.render(scene,cam);
+  sg.drawImage(renderer.domElement,(i%COLS)*FR,Math.floor(i/COLS)*FR);
+}
+window.SHEET=sheet.toDataURL('image/png');
+</script></body></html>
